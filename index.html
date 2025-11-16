@@ -2,15 +2,18 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>WebGL Raycasting Template</title>
+  <title>CS 512 HW6 - RAYCASTING</title>
   <style>
     body, html { margin: 0; padding: 0; overflow: hidden; }
     canvas { width: 100vw; height: 100vh; display: block; }
   </style>
 </head>
 <body>
-  <canvas id="glcanvas"></canvas>
+    <canvas id="glcanvas"></canvas>
 
-  <script src="main.js"></script>
+    <script type="module">
+        import { start } from "./main.js";
+        start();
+    </script>
 </body>
 </html>

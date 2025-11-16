@@ -1,12 +1,21 @@
-#version 300 es
 precision highp float;
 
-out vec4 outColor;
+varying vec3 v_normal;
+varying vec3 v_worldPos;
 
-uniform float u_time;
-uniform vec2 u_resolution;
+uniform vec3 u_lightPos;
+uniform vec3 u_camPos;
 
 void main() {
-    vec2 uv = gl_FragCoord.xy / u_resolution;
-    outColor = vec4(uv, 0.5 + 0.5 * sin(u_time), 1.0);
+    vec3 N = normalize(v_normal);
+    vec3 L = normalize(u_lightPos - v_worldPos);
+    vec3 V = normalize(u_camPos - v_worldPos);
+    vec3 R = reflect(-L, N);
+
+    float diff = max(dot(N,L), 0.0);
+    float spec = pow(max(dot(R,V), 0.0), 32.0);
+
+    vec3 color = vec3(0.2) + 0.7*diff + 0.5*spec;
+
+    gl_FragColor = vec4(color, 1.0);
 }

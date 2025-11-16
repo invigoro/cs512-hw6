@@ -1,12 +1,18 @@
-#version 300 es
-precision highp float;
+attribute vec3 a_position;
+attribute vec3 a_normal;
 
-const vec2 verts[3] = vec2[](
-    vec2(-1.0, -1.0),
-    vec2( 3.0, -1.0),
-    vec2(-1.0,  3.0)
-);
+uniform mat4 u_model;
+uniform mat4 u_view;
+uniform mat4 u_projection;
+
+varying vec3 v_normal;
+varying vec3 v_worldPos;
 
 void main() {
-    gl_Position = vec4(verts[gl_VertexID], 0.0, 1.0);
+    vec4 world = u_model * vec4(a_position,1.0);
+
+    v_worldPos = world.xyz;
+    v_normal   = mat3(u_model) * a_normal;
+
+    gl_Position = u_projection * u_view * world;
 }
