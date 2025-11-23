@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>HW 6 Ray Tracing - Fixed</title>
+    <style>
+        body { 
+            margin: 0; 
+            background: #111; 
+            color: #ccc;
+            font-family: monospace;
+            padding: 20px;
+        }
+        textarea {
+            background: #222;
+            color: #0f0;
+            font: 14px monospace;
+            width: 800px;
+            height: 600px;
+        }
+        canvas {
+            border: 1px solid #444;
+        }
+        .container {
+            display: flex;
+            gap: 20px;
+            align-items: flex-start;
+        }
+
+        .canvas-container {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .editor-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .controls {
+            margin-top: 10px;
+        }
+        .controls label {
+            display: block;
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+
+<h2>HW 6 Ray Tracing</h2>
+<p>Edit vertex and fragment shaders on the left, and you can see the result on the right instantly. <br>
+Please copy your edits to the source code if you want to save them, as the playground doesn't save them to the file.</p>
+
+<div class="container">
+    <div class="canvas-container">
+        <canvas id="glCanvas" width="800" height="600"></canvas>
+    </div>
+    <div class="editor-panel">
+         <div>
+            <b>Fragment Shader</b><br>
+            <textarea id="fsEditor"></textarea>
+        </div>
+        <div>
+            <b>Vertex Shader</b><br>
+            <textarea id="vsEditor"></textarea>
+        </div>
+    </div>
+</div>
+    
+
+
+<script id="vertex-shader" type="x-shader/x-vertex">#version 300 es
+    in vec2 position;
+    void main() {
+        gl_Position = vec4(position, 0.0, 1.0);
+    }
+</script>
+
+<script id="fragment-shader" type="x-shader/x-fragment">#version 300 es
+    precision highp float;
+
+    //time for animation
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform int u_maxBounces;
+    uniform float u_ambientStrength;
+
+    out vec4 fragColor;
+
+    // Material types
+    const int MATERIAL_DIFFUSE = 0;
+    const int MATERIAL_REFLECTIVE = 1;
+    const int MATERIAL_REFRACTIVE = 2;
+
+    // Ray structure
+    struct Ray {
+        vec3 origin;
+        vec3 direction;
+    };
+
+    // Sphere structure
+    struct Sphere {
+        vec3 center;
+        float radius;
+        vec3 color;
+        int material;
+        float reflectivity;
+        float refractiveIndex;
+    };
+
+    // Cube structure
+    struct Cube {
+        vec3 center;
+        vec3 size;
+        vec3 color;
+        float reflectivity;
+    };
+
+    // Hit record structure
+    struct HitData {
+        bool hit;
+        float t;
+        vec3 point;
+        vec3 normal;
+        vec3 color;
+        int material;
+        float reflectivity;
+        float refractiveIndex;
+        bool frontFace;
+    };
+
+    // Scene objects
+    Sphere spheres[2];
+    Sphere lightSphere;
+    Cube cube;
+
+    // Initialize scene objects
+    void initScene(float time) {
+        // Light sphere
+        lightSphere = Sphere(
+            <!-- insert your code here -->
+        );
+
+        //cube
+        cube = Cube(
+            <!-- insert your code here -->
+        );
+
+        // Sphere 1
+        spheres[0] = Sphere(
+            <!-- insert your code here -->
+        );
+
+        // Sphere 2
+        spheres[1] = Sphere(
+            <!-- insert your code here -->
+        );
+    }
+
+    bool intersectSphere(Ray ray, Sphere sphere, out float t) {
+        <!-- insert your code here -->
+    }
+
+    bool intersectCube(Ray ray, out float t, out vec3 normal) {
+        <!-- insert your code here -->
+    }
+
+    // Trace objects in the scene for intersections
+    HitData traceScene(Ray ray, bool includeLightSphere) {
+        HitData closest;
+        closest.hit = false;
+        closest.t = 1e10;
+
+        // Light sphere intersection
+        if (includeLightSphere) {
+            float t;
+            if (intersectSphere(ray, lightSphere, t)) {
+                if (t < closest.t) {
+                    <!-- insert your code here -->
+                }
+            }
+        }
+
+        // Cube intersection
+        float cube_t;
+        vec3 cubeNormal;
+        if (intersectCube(ray, cube_t, cubeNormal)) {
+            if (cube_t < closest.t) {
+                <!-- insert your code here -->
+            }
+        }
+
+        // Sphere intersections
+        for (int i = 0; i < 2; i++) {
+            float t;
+            if (intersectSphere(ray, spheres[i], t)) {
+                if (t < closest.t) {
+                    <!-- insert your code here -->
+                }
+            }
+        }
+        return closest;
+    }
+
+    // refraction
+    vec3 refraction(vec3 I, vec3 N, float eta) {
+        <!-- insert your code here -->
+    }
+
+    // Schlick approximation
+    float schlick(float cosine, float ref_idx) {
+        <!-- insert your code here -->
+    }
+
+    vec3 trace(Ray ray, int maxDepth) {
+        vec3 color = vec3(0.0);
+
+        //attenuation is optional
+        vec3 attenuation = vec3(1.0);
+
+        for (int depth = 0; depth < 8; depth++) {
+            if (depth >= maxDepth) break;
+
+            HitData lightHit = traceScene(ray, true);
+            <!-- insert your code here -->
+
+            HitData hit = traceScene(ray, false);
+
+            if (!hit.hit) {
+                <!-- insert your code here -->
+            }
+
+            vec3 lightDir = normalize(lightSphere.center - hit.point);
+            float lightDist = length(lightSphere.center - hit.point);
+
+            <!-- insert your code here -->
+
+            if (hit.material == MATERIAL_DIFFUSE) {
+                <!-- insert your code here -->
+
+                vec3 lighting = directLight + ambientLight;
+                color += attenuation * lighting;
+                break;
+
+            } else if (hit.material == MATERIAL_REFRACTIVE) {
+                <!-- insert your code here -->
+                vec3 direction;
+                if (total_internel_reflectioin || schlick_value > 0.5) {
+                    //direction = reflection ray
+                    <!-- insert your code here -->
+                } else {
+                    //direction = refraction ray
+                    <!-- insert your code here -->
+                }
+
+                ray = Ray(hit.point + direction * 0.001, direction);
+                attenuation *= hit.color;
+
+            } else {
+                <!-- insert your code here -->
+
+                attenuation *= hit.reflectivity;
+                ray = Ray(hit.point + hit.normal * 0.001, reflect(ray.direction, hit.normal));
+            }
+
+            if (length(attenuation) < 0.01) break;
+        }
+
+        return color;
+    }
+
+    void main() {
+        initScene(u_time);
+
+        vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution) / u_resolution.y;
+
+        vec3 origin = vec3(0.0, 0.0, 2.0);
+        vec3 direction = normalize(vec3(uv, -1.5));
+
+        Ray ray = Ray(origin, direction);
+        vec3 color = trace(ray, u_maxBounces);
+
+        color = pow(color, vec3(1.0 / 2.2));
+
+        fragColor = vec4(color, 1.0);
+    }
+</script>
+
+<script>
+    (function() {
+        const canvas = document.getElementById('glCanvas');
+        const gl = canvas.getContext('webgl2');
+
+        if (!gl) {
+            alert('WebGL 2 not supported in this browser');
+            throw new Error('WebGL 2 not supported');
+        }
+
+        const vsEditor = document.getElementById('vsEditor');
+        const fsEditor = document.getElementById('fsEditor');
+
+        const vertexShaderSource = document.getElementById('vertex-shader').textContent;
+        const fragmentShaderSource = document.getElementById('fragment-shader').textContent;
+
+        // Initialize editors with shader source
+        vsEditor.value = vertexShaderSource;
+        fsEditor.value = fragmentShaderSource;
+
+        let program, positionLocation, resolutionLocation, timeLocation, maxBouncesLocation, ambientStrengthLocation;
+        let vao, positionBuffer;
+
+        function createShader(gl, type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                throw new Error(gl.getShaderInfoLog(shader));
+            }
+
+            return shader;
+        }
+
+        function createProgram(gl, vsSource, fsSource) {
+            const vs = createShader(gl, gl.VERTEX_SHADER, vsSource);
+            const fs = createShader(gl, gl.FRAGMENT_SHADER, fsSource);
+            const prog = gl.createProgram();
+            gl.attachShader(prog, vs);
+            gl.attachShader(prog, fs);
+            gl.linkProgram(prog);
+
+            if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+                throw new Error(gl.getProgramInfoLog(prog));
+            }
+
+            return prog;
+        }
+
+        const positions = new Float32Array([
+            -1, -1,
+            1, -1,
+            -1, 1,
+            1, 1
+        ]);
+
+        // Initialize buffers
+        function initBuffers() {
+            positionBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+
+            vao = gl.createVertexArray();
+            gl.bindVertexArray(vao);
+            gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+            gl.enableVertexAttribArray(positionLocation);
+            gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+            gl.bindVertexArray(null);
+        }
+
+        function initShaderProgram() {
+            try {
+                program = createProgram(gl, vsEditor.value, fsEditor.value);
+                gl.useProgram(program);
+                positionLocation = gl.getAttribLocation(program, 'position');
+                resolutionLocation = gl.getUniformLocation(program, 'u_resolution');
+                timeLocation = gl.getUniformLocation(program, 'u_time');
+                maxBouncesLocation = gl.getUniformLocation(program, 'u_maxBounces');
+                ambientStrengthLocation = gl.getUniformLocation(program, 'u_ambientStrength');
+                
+                initBuffers();
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        initShaderProgram();
+
+        // Hot compile when any input in the playground text area
+        vsEditor.onkeyup = initShaderProgram;
+        fsEditor.onkeyup = initShaderProgram;
+
+        let maxBounces = 4;
+        let ambientStrength = 0.25;
+
+        // UI Controls
+        <!-- insert your code here -->
+
+        let startTime = Date.now();
+        function render() {
+            const time = (Date.now() - startTime) / 1000.0;
+
+            gl.viewport(0, 0, canvas.width, canvas.height);
+            gl.clearColor(0, 0, 0, 1);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+
+            gl.useProgram(program);
+            gl.bindVertexArray(vao);
+
+            gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
+            gl.uniform1f(timeLocation, time);
+            gl.uniform1i(maxBouncesLocation, maxBounces);
+            gl.uniform1f(ambientStrengthLocation, ambientStrength);
+
+            gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+            requestAnimationFrame(render);
+        }
+
+        requestAnimationFrame(render);
+    })();
+</script>
+
+</body>
+</html>
