@@ -1,19 +1,731 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>CS 512 HW6 - RAYCASTING</title>
-  <style>
-    body, html { margin: 0; padding: 0; overflow: hidden; }
-    canvas { width: 100vw; height: 100vh; display: block; }
-  </style>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>HW 6 Ray Tracing</title>
+    <style>
+        body { 
+            margin: 0; 
+            background: #111; 
+            color: #ccc;
+            font-family: monospace;
+            padding: 20px;
+        }
+        textarea {
+            background: #222;
+            color: #0f0;
+            font: 14px monospace;
+            width: 800px;
+            height: 600px;
+        }
+        canvas {
+            border: 1px solid #444;
+        }
+        .container {
+            display: flex;
+            gap: 20px;
+            align-items: flex-start;
+        }
+        .canvas-container {
+            display: flex;
+            flex-direction: column;
+        }
+        .editor-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .controls {
+            margin-top: 10px;
+            background: #1a1a1a;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        .controls label {
+            display: block;
+            margin: 10px 0 5px 0;
+            color: #aaa;
+        }
+        .controls input[type="range"] {
+            width: 200px;
+        }
+        .controls input[type="text"] {
+            width: 100%;
+            background: #333;
+            color: #fff;
+            border: 1px solid #555;
+            padding: 5px;
+            margin: 5px 0;
+        }
+        .controls button {
+            background: #2a5;
+            color: #fff;
+            border: none;
+            padding: 8px 15px;
+            cursor: pointer;
+            border-radius: 3px;
+            margin-top: 5px;
+        }
+        .controls button:hover {
+            background: #3b6;
+        }
+        .controls .value {
+            color: #0f0;
+            margin-left: 10px;
+        }
+        .cubemap-section {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #333;
+        }
+        .info {
+            color: #888;
+            font-size: 11px;
+            margin: 5px 0;
+        }
+    </style>
 </head>
 <body>
-    <canvas id="glcanvas"></canvas>
 
-    <script type="module">
-        import { start } from "./main.js";
-        start();
-    </script>
+<h2>HW 6 Ray Tracing</h2>
+<p>Edit vertex and fragment shaders on the left, and you can see the result on the right instantly. <br>
+Please copy your edits to the source code if you want to save them, as the playground doesn't save them to the file.</p>
+<p><i>Cubemap images courtesy of Emil Persson (http://www.humus.name)</i></p>
+
+<div class="container">
+    <div class="canvas-container">
+        <canvas id="glCanvas" width="800" height="600"></canvas>
+        <div class="controls">
+            <h3>Controls</h3>
+            <label>Max Bounces: <span class="value" id="bouncesVal">4</span></label>
+            <input type="range" id="bouncesSlider" min="0" max="50" value="4">
+            
+            <label>Ambient Strength: <span class="value" id="ambientVal">0.25</span></label>
+            <input type="range" id="ambientSlider" min="0" max="1" step="0.05" value="0.25">
+        </div>
+    </div>
+    <div class="editor-panel">
+         <div>
+            <b>Fragment Shader</b><br>
+            <textarea id="fsEditor"></textarea>
+        </div>
+        <div>
+            <b>Vertex Shader</b><br>
+            <textarea id="vsEditor"></textarea>
+        </div>
+    </div>
+</div>
+
+<script id="vertex-shader" type="x-shader/x-vertex">#version 300 es
+    in vec2 position;
+    void main() {
+        gl_Position = vec4(position, 0.0, 1.0);
+    }
+</script>
+
+<script id="fragment-shader" type="x-shader/x-fragment">#version 300 es
+    precision highp float;
+
+    //time for animation
+    uniform float u_time;
+    uniform vec2 u_resolution;
+    uniform int u_maxBounces;
+    uniform float u_ambientStrength;
+    uniform samplerCube u_envMap;
+    uniform bool u_useEnvMap;
+
+    out vec4 fragColor;
+
+    // Material types
+    const int MATERIAL_DIFFUSE = 0;
+    const int MATERIAL_REFLECTIVE = 1;
+    const int MATERIAL_REFRACTIVE = 2;
+
+    // Ray structure
+    struct Ray {
+        vec3 origin;
+        vec3 direction;
+    };
+
+    // Sphere structure
+    struct Sphere {
+        vec3 center;
+        float radius;
+        vec3 color;
+        int material;
+        float reflectivity;
+        float refractiveIndex;
+    };
+
+    // Cube structure
+    struct Cube {
+        vec3 center;
+        vec3 size;
+        vec3 color;
+        float reflectivity;
+    };
+
+    // Hit record structure
+    struct HitData {
+        bool hit;
+        float t;
+        vec3 point;
+        vec3 normal;
+        vec3 color;
+        int material;
+        float reflectivity;
+        float refractiveIndex;
+        bool frontFace;
+    };
+
+    // Scene objects
+    Sphere spheres[3];
+    Sphere lightSphere1;
+    Cube cube;
+
+    // Sample environment map
+    vec3 sampleEnvironment(vec3 direction) {
+        if (u_useEnvMap) {
+            return texture(u_envMap, direction).rgb;
+        } else {
+            // Fallback gradient sky
+            vec3 unitDir = normalize(direction);
+            float t = 0.5 * (unitDir.y + 1.0);
+            return mix(vec3(0.1, 0.1, 0.15), vec3(0.5, 0.7, 1.0), t);
+        }
+    }
+
+    // Initialize scene objects
+    void initScene(float time) {
+        // Light sphere
+        lightSphere1 = Sphere(
+            vec3(2.0 * cos(time * 0.8), 1.5 + 0.3 * sin(time), 0.5 + 0.5 * sin(time * 0.6)),
+            0.3,
+            vec3(1.0, 0.9, 0.7),
+            MATERIAL_DIFFUSE,
+            0.0,
+            1.0
+        );
+
+        //cube
+        cube = Cube(
+            vec3(-0.8 + 0.3 * sin(time * 0.7), -0.3, -0.5),
+            vec3(0.5, 0.5, 0.5),
+            vec3(0.7, 0.5, 0.3),
+            0.5
+        );
+
+        // Sphere 1 (diffuse)
+        spheres[0] = Sphere(
+            vec3(0.8 * cos(time * 0.5), -0.2, -1.0 + 0.2 * sin(time)),
+            0.4,
+            vec3(0.3, 0.5, 0.9),
+            MATERIAL_DIFFUSE,
+            0.0,
+            1.0
+        );
+
+        // Sphere 2 (reflective glass)
+        spheres[1] = Sphere(
+            vec3(-0.5, 0.1 + 0.2 * sin(time * 1.2), -1.2),
+            0.35,
+            vec3(0.95, 0.98, 1.0),
+            MATERIAL_REFLECTIVE,
+            0.95,
+            1.5
+        );
+
+        // Sphere 3 (refractive)
+        spheres[2] = Sphere(
+            vec3(.5, 0.4 , -2.0 * sin(time * 1.2) + .4),
+            0.35,
+            vec3(0.95, 0.98, 1.0),
+            MATERIAL_REFRACTIVE,
+            0.95,
+            1.5
+        );
+    }
+
+    bool intersectSphere(Ray ray, Sphere sphere, out float t) {
+        vec3 oc = ray.origin - sphere.center;
+        float a = dot(ray.direction, ray.direction);
+        float b = 2.0 * dot(oc, ray.direction);
+        float c = dot(oc, oc) - sphere.radius * sphere.radius;
+        float discriminant = b * b - 4.0 * a * c;
+        
+        if (discriminant < 0.0) {
+            return false;
+        }
+        
+        float sqrtd = sqrt(discriminant);
+        float t0 = (-b - sqrtd) / (2.0 * a);
+        float t1 = (-b + sqrtd) / (2.0 * a);
+        
+        if (t0 > 0.001) {
+            t = t0;
+            return true;
+        } else if (t1 > 0.001) {
+            t = t1;
+            return true;
+        }
+        
+        return false;
+    }
+
+    bool intersectCube(Ray ray, out float t, out vec3 normal) {
+        vec3 boxMin = cube.center - cube.size * 0.5;
+        vec3 boxMax = cube.center + cube.size * 0.5;
+        
+        vec3 invDir = 1.0 / ray.direction;
+        vec3 t0s = (boxMin - ray.origin) * invDir;
+        vec3 t1s = (boxMax - ray.origin) * invDir;
+        
+        vec3 tsmaller = min(t0s, t1s);
+        vec3 tbigger = max(t0s, t1s);
+        
+        float tmin = max(max(tsmaller.x, tsmaller.y), max(tsmaller.z, 0.001));
+        float tmax = min(min(tbigger.x, tbigger.y), tbigger.z);
+        
+        if (tmin > tmax) {
+            return false;
+        }
+        
+        t = tmin;
+        
+        // Determine which face was hit
+        if (tmin == tsmaller.x) {
+            normal = vec3(-sign(ray.direction.x), 0.0, 0.0);
+        } else if (tmin == tsmaller.y) {
+            normal = vec3(0.0, -sign(ray.direction.y), 0.0);
+        } else {
+            normal = vec3(0.0, 0.0, -sign(ray.direction.z));
+        }
+        
+        return true;
+    }
+
+    // Trace objects in the scene for intersections
+    HitData traceScene(Ray ray, bool includeLightSphere) {
+        HitData closest;
+        closest.hit = false;
+        closest.t = 1e10;
+
+        // Light sphere intersection
+        if (includeLightSphere) {
+            float t;
+            if (intersectSphere(ray, lightSphere1, t)) {
+                if (t < closest.t) {
+                    closest.hit = true;
+                    closest.t = t;
+                    closest.point = ray.origin + ray.direction * t;
+                    closest.normal = normalize(closest.point - lightSphere1.center);
+                    closest.color = lightSphere1.color * 3.0; // Emissive
+                    closest.material = lightSphere1.material;
+                    closest.reflectivity = lightSphere1.reflectivity;
+                    closest.refractiveIndex = lightSphere1.refractiveIndex;
+                    closest.frontFace = dot(ray.direction, closest.normal) < 0.0;
+                }
+            }
+        }
+
+        // Cube intersection
+        float cube_t;
+        vec3 cubeNormal;
+        if (intersectCube(ray, cube_t, cubeNormal)) {
+            if (cube_t < closest.t) {
+                closest.hit = true;
+                closest.t = cube_t;
+                closest.point = ray.origin + ray.direction * cube_t;
+                closest.normal = cubeNormal;
+                closest.color = cube.color;
+                closest.material = MATERIAL_REFLECTIVE;
+                closest.reflectivity = cube.reflectivity;
+                closest.refractiveIndex = 1.0;
+                closest.frontFace = dot(ray.direction, closest.normal) < 0.0;
+            }
+        }
+
+        // Sphere intersections
+        for (int i = 0; i < 3; i++) {
+            float t;
+            if (intersectSphere(ray, spheres[i], t)) {
+                if (t < closest.t) {
+                    closest.hit = true;
+                    closest.t = t;
+                    closest.point = ray.origin + ray.direction * t;
+                    closest.normal = normalize(closest.point - spheres[i].center);
+                    closest.color = spheres[i].color;
+                    closest.material = spheres[i].material;
+                    closest.reflectivity = spheres[i].reflectivity;
+                    closest.refractiveIndex = spheres[i].refractiveIndex;
+                    closest.frontFace = dot(ray.direction, closest.normal) < 0.0;
+                }
+            }
+        }
+        
+        return closest;
+    }
+
+    // Refraction using Snell's law
+    vec3 refraction(vec3 I, vec3 N, float eta) {
+        float cosi = -dot(I, N);
+        float cost2 = 1.0 - eta * eta * (1.0 - cosi * cosi);
+        
+        if (cost2 < 0.0) {
+            // Total internal reflection
+            return vec3(0.0);
+        }
+        
+        return eta * I + (eta * cosi - sqrt(cost2)) * N;
+    }
+
+    // Schlick approximation for Fresnel
+    float schlick(float cosine, float ref_idx) {
+        float r0 = (1.0 - ref_idx) / (1.0 + ref_idx);
+        r0 = r0 * r0;
+        return r0 + (1.0 - r0) * pow(1.0 - cosine, 5.0);
+    }
+
+    vec3 trace(Ray ray, int maxDepth) {
+        vec3 color = vec3(0.0);
+        vec3 attenuation = vec3(1.0);
+
+        for (int depth = 0; depth < 8; depth++) {
+            if (depth >= maxDepth) break;
+
+            // Check if we hit the light first
+            HitData lightHit = traceScene(ray, true);
+            if (lightHit.hit && lightHit.color.r > 2.0) {
+                // Hit the light sphere directly
+                color += attenuation * lightHit.color;
+                break;
+            }
+
+            // Trace scene without light sphere
+            HitData hit = traceScene(ray, false);
+
+            if (!hit.hit) {
+                // Sample environment map for background
+                color += attenuation * sampleEnvironment(ray.direction);
+                break;
+            }
+
+            vec3 lightDir = normalize(lightSphere1.center - hit.point);
+            float lightDist = length(lightSphere1.center - hit.point);
+
+            // Shadow ray
+            Ray shadowRay = Ray(hit.point + hit.normal * 0.001, lightDir);
+            HitData shadowHit = traceScene(shadowRay, false);
+            bool inShadow = shadowHit.hit && shadowHit.t < lightDist;
+
+            if (hit.material == MATERIAL_DIFFUSE) {//w/ phong
+                vec3 ambient = u_ambientStrength * hit.color;
+                
+                // Add some environment ambient
+                if (u_useEnvMap) {
+                    vec3 envAmbient = sampleEnvironment(hit.normal) * 0.3;
+                    ambient += envAmbient * hit.color;
+                }
+                
+                vec3 diffuse = vec3(0.0);
+                vec3 specular = vec3(0.0);
+                
+                if (!inShadow) {
+                    // Diffuse
+                    float diff = max(dot(hit.normal, lightDir), 0.0);
+                    diffuse = diff * hit.color * lightSphere1.color;
+                    
+                    // Specular (Blinn-Phong)
+                    vec3 viewDir = normalize(-ray.direction);
+                    vec3 halfDir = normalize(lightDir + viewDir);
+                    float spec = pow(max(dot(hit.normal, halfDir), 0.0), 32.0);
+                    specular = spec * vec3(0.5) * lightSphere1.color;
+                }
+                
+                vec3 lighting = ambient + diffuse + specular;
+                color += attenuation * lighting;
+                break;
+
+            } else if (hit.material == MATERIAL_REFRACTIVE) {
+                vec3 outwardNormal = hit.frontFace ? hit.normal : -hit.normal;
+                float eta = hit.frontFace ? (1.0 / hit.refractiveIndex) : hit.refractiveIndex;
+                
+                vec3 refracted = refraction(ray.direction, outwardNormal, eta);
+                bool total_internal_reflection = (length(refracted) < 0.001);
+                
+                float cosine = hit.frontFace ? 
+                    -dot(ray.direction, hit.normal) : 
+                    dot(ray.direction, hit.normal);
+                float schlick_value = schlick(cosine, hit.refractiveIndex);
+                
+                vec3 direction;
+                if (total_internal_reflection || schlick_value > 0.5) {
+                    // Reflect
+                    direction = reflect(ray.direction, hit.normal);
+                    ray = Ray(hit.point + hit.normal * 0.001, direction);
+                } else {
+                    // Refract
+                    direction = normalize(refracted);
+                    ray = Ray(hit.point - outwardNormal * 0.001, direction);
+                }
+                
+                attenuation *= hit.color;
+
+            } else {//reflective
+                vec3 reflected = reflect(ray.direction, hit.normal);
+                
+                // Add some direct lighting for reflective surfaces
+                if (!inShadow) {
+                    float diff = max(dot(hit.normal, lightDir), 0.0);
+                    color += attenuation * 0.2 * diff * hit.color * lightSphere1.color;
+                }
+                
+                attenuation *= hit.reflectivity * hit.color;
+                ray = Ray(hit.point + hit.normal * 0.001, reflected);
+            }
+
+            if (length(attenuation) < 0.01) break;
+        }
+
+        return color;
+    }
+
+    void main() {
+        initScene(u_time);
+
+        vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution) / u_resolution.y;
+
+        vec3 origin = vec3(0.0, 0.0, 2.0);
+        vec3 direction = normalize(vec3(uv, -1.5));
+
+        Ray ray = Ray(origin, direction);
+        vec3 color = trace(ray, u_maxBounces);
+
+        // Gamma correction
+        color = pow(color, vec3(1.0 / 2.2));
+
+        fragColor = vec4(color, 1.0);
+    }
+</script>
+
+<script>
+    (function() {
+        const canvas = document.getElementById('glCanvas');
+        const gl = canvas.getContext('webgl2');
+
+        if (!gl) {
+            alert('WebGL 2 not supported in this browser');
+            throw new Error('WebGL 2 not supported');
+        }
+
+        const vsEditor = document.getElementById('vsEditor');
+        const fsEditor = document.getElementById('fsEditor');
+
+        const vertexShaderSource = document.getElementById('vertex-shader').textContent;
+        const fragmentShaderSource = document.getElementById('fragment-shader').textContent;
+
+        // Initialize editors with shader source
+        vsEditor.value = vertexShaderSource;
+        fsEditor.value = fragmentShaderSource;
+
+        let program, positionLocation, resolutionLocation, timeLocation, maxBouncesLocation, ambientStrengthLocation;
+        let envMapLocation, useEnvMapLocation;
+        let vao, positionBuffer;
+        let cubemapTexture = null;
+        let cubemapLoaded = false;
+
+        function createShader(gl, type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                console.error('Shader compilation error:', gl.getShaderInfoLog(shader));
+                throw new Error(gl.getShaderInfoLog(shader));
+            }
+
+            return shader;
+        }
+
+        function createProgram(gl, vsSource, fsSource) {
+            const vs = createShader(gl, gl.VERTEX_SHADER, vsSource);
+            const fs = createShader(gl, gl.FRAGMENT_SHADER, fsSource);
+            const prog = gl.createProgram();
+            gl.attachShader(prog, vs);
+            gl.attachShader(prog, fs);
+            gl.linkProgram(prog);
+
+            if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+                console.error('Program linking error:', gl.getProgramInfoLog(prog));
+                throw new Error(gl.getProgramInfoLog(prog));
+            }
+
+            return prog;
+        }
+
+        const positions = new Float32Array([
+            -1, -1,
+            1, -1,
+            -1, 1,
+            1, 1
+        ]);
+
+        // Initialize buffers
+        function initBuffers() {
+            positionBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+
+            vao = gl.createVertexArray();
+            gl.bindVertexArray(vao);
+            gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+            gl.enableVertexAttribArray(positionLocation);
+            gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+            gl.bindVertexArray(null);
+        }
+
+        function initShaderProgram() {
+            try {
+                program = createProgram(gl, vsEditor.value, fsEditor.value);
+                gl.useProgram(program);
+                positionLocation = gl.getAttribLocation(program, 'position');
+                resolutionLocation = gl.getUniformLocation(program, 'u_resolution');
+                timeLocation = gl.getUniformLocation(program, 'u_time');
+                maxBouncesLocation = gl.getUniformLocation(program, 'u_maxBounces');
+                ambientStrengthLocation = gl.getUniformLocation(program, 'u_ambientStrength');
+                envMapLocation = gl.getUniformLocation(program, 'u_envMap');
+                useEnvMapLocation = gl.getUniformLocation(program, 'u_useEnvMap');
+                
+                initBuffers();
+            } catch (e) {
+                console.error('Shader error:', e);
+            }
+        }
+
+        initShaderProgram();
+
+        // Hot compile when editing shaders
+        vsEditor.addEventListener('input', initShaderProgram);
+        fsEditor.addEventListener('input', initShaderProgram);
+
+        let maxBounces = 4;
+        let ambientStrength = 0.25;
+
+        // UI Controls
+        const bouncesSlider = document.getElementById('bouncesSlider');
+        const bouncesVal = document.getElementById('bouncesVal');
+        const ambientSlider = document.getElementById('ambientSlider');
+        const ambientVal = document.getElementById('ambientVal');
+        const cubeStatus = document.getElementById('cubeStatus');
+
+        bouncesSlider.addEventListener('input', (e) => {
+            maxBounces = parseInt(e.target.value);
+            bouncesVal.textContent = maxBounces;
+        });
+
+        ambientSlider.addEventListener('input', (e) => {
+            ambientStrength = parseFloat(e.target.value);
+            ambientVal.textContent = ambientStrength.toFixed(2);
+        });
+
+        // Cubemap loading
+        function loadCubemapFromURLs() {
+            cubemapTexture = gl.createTexture();
+            gl.bindTexture(gl.TEXTURE_CUBE_MAP, cubemapTexture);
+            const urls = {
+                px: `./images/posx.jpg`,
+                py: `./images/posy.jpg`,
+                pz: `./images/posz.jpg`,
+                nx: `./images/negx.jpg`,
+                ny: `./images/negy.jpg`,
+                nz: `./images/negz.jpg`,
+
+            }
+
+            const faces = [
+                { target: gl.TEXTURE_CUBE_MAP_POSITIVE_X, url: urls.px },
+                { target: gl.TEXTURE_CUBE_MAP_NEGATIVE_X, url: urls.nx },
+                { target: gl.TEXTURE_CUBE_MAP_POSITIVE_Y, url: urls.py },
+                { target: gl.TEXTURE_CUBE_MAP_NEGATIVE_Y, url: urls.ny },
+                { target: gl.TEXTURE_CUBE_MAP_POSITIVE_Z, url: urls.pz },
+                { target: gl.TEXTURE_CUBE_MAP_NEGATIVE_Z, url: urls.nz }
+            ];
+
+            // Placeholder while loading
+            faces.forEach(face => {
+                gl.texImage2D(face.target, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
+                    new Uint8Array([128, 128, 255, 255]));
+            });
+
+            let loadedCount = 0;
+
+            faces.forEach(face => {
+                const image = new Image();
+                image.crossOrigin = 'anonymous';
+                
+                image.onload = () => {
+                    gl.bindTexture(gl.TEXTURE_CUBE_MAP, cubemapTexture);
+                    gl.texImage2D(face.target, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+                    loadedCount++;
+
+                    if (loadedCount === 6) {
+                        gl.generateMipmap(gl.TEXTURE_CUBE_MAP);
+                        gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+                        gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+                        gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+                        gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+                        gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE);
+                        
+                        cubemapLoaded = true;
+                    } else {
+                    }
+                };
+
+                image.onerror = () => {
+                    console.error('Failed to load cubemap face:', face.url);
+                    cubeStatus.textContent = `Error loading face: ${face.url}`;
+                    cubeStatus.style.color = '#f55';
+                };
+
+                image.src = face.url;
+            });
+        }
+
+        
+        loadCubemapFromURLs();
+
+        let startTime = Date.now();
+        function render() {
+            const time = (Date.now() - startTime) / 1000.0;
+
+            gl.viewport(0, 0, canvas.width, canvas.height);
+            gl.clearColor(0, 0, 0, 1);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+
+            gl.useProgram(program);
+            gl.bindVertexArray(vao);
+
+            gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
+            gl.uniform1f(timeLocation, time);
+            gl.uniform1i(maxBouncesLocation, maxBounces);
+            gl.uniform1f(ambientStrengthLocation, ambientStrength);
+            gl.uniform1i(useEnvMapLocation, cubemapLoaded ? 1 : 0);
+
+            if (cubemapLoaded && cubemapTexture) {
+                gl.activeTexture(gl.TEXTURE0);
+                gl.bindTexture(gl.TEXTURE_CUBE_MAP, cubemapTexture);
+                gl.uniform1i(envMapLocation, 0);
+            }
+
+            gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+            requestAnimationFrame(render);
+        }
+
+        requestAnimationFrame(render);
+    })();
+</script>
+
 </body>
 </html>
